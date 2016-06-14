@@ -27,34 +27,29 @@
 **
 ****************************************************************************/
 
-#ifndef CMAKEPROJECTCONSTANTS_H
-#define CMAKEPROJECTCONSTANTS_H
+#include "argumentslineedit.h"
+#include <utils/qtcprocess.h>
 
 namespace CMakeProjectManager {
-namespace Constants {
 
-const char PROJECTCONTEXT[] = "CMakeProject.ProjectContext";
-const char CMAKEMIMETYPE[]  = "text/x-cmake";
-const char CMAKE_EDITOR_ID[] = "CMakeProject.CMakeEditor";
-const char CMAKE_EDITOR_DISPLAY_NAME[] = "CMake Editor";
-const char C_CMAKEEDITOR[] = "CMakeProject.Context.CMakeEditor";
-const char RUNCMAKE[] = "CMakeProject.RunCMake";
-const char RUNCMAKECONTEXTMENU[] = "CMakeProject.RunCMakeContextMenu";
-const char CMAKE_SUPPORT_FEATURE[] = "CMake.CMakeSupport";
+ArgumentsLineEdit::ArgumentsLineEdit(QWidget *parent) :
+    Utils::BaseValidatingLineEdit(parent)
+{
+}
 
-// Project
-const char CMAKEPROJECT_ID[] = "CMakeProjectManager.CMakeProject";
+bool ArgumentsLineEdit::validate(const QString &value, QString *errorMessage) const
+{
+    Utils::QtcProcess::SplitError err = Utils::QtcProcess::SplitOk;
+    Utils::QtcProcess::splitArgs(value,false,&err);
 
-// Buildconfiguration
-const char CMAKE_BC_ID[] = "CMakeProjectManager.CMakeBuildConfiguration";
+    if(err != Utils::QtcProcess::SplitOk) {
+        if(err == Utils::QtcProcess::BadQuoting)
+            *errorMessage = tr("Command contains quoting errors");
+        else if(err == Utils::QtcProcess::FoundMeta)
+            *errorMessage = tr("Command contains complex shell constructs");
+        return false;
+    }
+    return true;
+}
 
-// Menu
-const char M_CONTEXT[] = "CMakeEditor.ContextMenu";
-
-// CMake Tool
-const char CMAKE_TOOL_ID[] = "CMakeProjectManager.DefaultCMakeTool";
-
-} // namespace Constants
 } // namespace CMakeProjectManager
-
-#endif // CMAKEPROJECTCONSTANTS_H

@@ -37,10 +37,14 @@
 #include "cmakelocatorfilter.h"
 #include "cmakefilecompletionassist.h"
 #include "cmakehighlighterfactory.h"
+#include "cmakeappwizard.h"
+#include "cmaketoolmanager.h"
+#include "cmakekitinformation.h"
 
 #include <coreplugin/featureprovider.h>
 #include <coreplugin/mimedatabase.h>
 #include <texteditor/texteditoractionhandler.h>
+#include <projectexplorer/kitmanager.h>
 
 #include <QtPlugin>
 #include <QDebug>
@@ -70,6 +74,8 @@ bool CMakeProjectPlugin::initialize(const QStringList & /*arguments*/, QString *
 {
     if (!Core::MimeDatabase::addMimeTypes(QLatin1String(":cmakeproject/CMakeProjectManager.mimetypes.xml"), errorMessage))
         return false;
+
+    addAutoReleasedObject(new CMakeToolManager);
     CMakeSettingsPage *cmp = new CMakeSettingsPage();
     addAutoReleasedObject(cmp);
     CMakeManager *manager = new CMakeManager(cmp);
@@ -83,6 +89,10 @@ bool CMakeProjectPlugin::initialize(const QStringList & /*arguments*/, QString *
     addAutoReleasedObject(new CMakeFileCompletionAssistProvider(cmp));
     addAutoReleasedObject(new CMakeFeatureProvider);
     addAutoReleasedObject(new CMakeHighlighterFactory);
+
+    CMakeAppWizard::registerSelf();
+    ProjectExplorer::KitManager::registerKitInformation(new CMakeKitInformation());
+
     return true;
 }
 

@@ -33,8 +33,12 @@
 #include "cmakeprojectconstants.h"
 #include "cmakeprojectnodes.h"
 #include "cmakerunconfiguration.h"
+#include "cmakekitinformation.h"
+#include "cmakeappwizard.h"
 #include "makestep.h"
-#include "cmakeopenprojectwizard.h"
+#include "cmaketoolmanager.h"
+#include "argumentslineedit.h"
+#include "generatorinfo.h"
 
 #include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/projectexplorer.h>
@@ -58,16 +62,20 @@
 #include <utils/qtcassert.h>
 #include <utils/stringutils.h>
 #include <utils/hostosinfo.h>
+#include <utils/qtcprocess.h>
+#include <utils/pathchooser.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/infobar.h>
 #include <coreplugin/documentmanager.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/variablemanager.h>
+#include <coreplugin/modemanager.h>
 
 #include <QDebug>
 #include <QDir>
 #include <QFormLayout>
 #include <QFileSystemWatcher>
+#include <QLabel>
 
 using namespace CMakeProjectManager;
 using namespace CMakeProjectManager::Internal;
@@ -100,7 +108,7 @@ CMakeProject::CMakeProject(CMakeManager *manager, const QString &fileName)
     m_file = new CMakeFile(this, fileName);
 
     connect(this, SIGNAL(buildTargetsChanged()),
-            this, SLOT(updateRunConfigurations()));
+            this, SLOT(updateConfigurations()));
 
     connect(m_watcher, SIGNAL(fileChanged(QString)), this, SLOT(fileChanged(QString)));
 }
@@ -123,32 +131,10 @@ void CMakeProject::changeActiveBuildConfiguration(ProjectExplorer::BuildConfigur
     if (!bc)
         return;
 
-    CMakeBuildConfiguration *cmakebc = static_cast<CMakeBuildConfiguration *>(bc);
-
-    // Pop up a dialog asking the user to rerun cmake
-    QString cbpFile = CMakeManager::findCbpFile(QDir(bc->buildDirectory().toString()));
-    QFileInfo cbpFileFi(cbpFile);
-    CMakeOpenProjectWizard::Mode mode = CMakeOpenProjectWizard::Nothing;
-    if (!cbpFileFi.exists()) {
-        mode = CMakeOpenProjectWizard::NeedToCreate;
-    } else {
-        foreach (const QString &file, m_watchedFiles) {
-            if (QFileInfo(file).lastModified() > cbpFileFi.lastModified()) {
-                mode = CMakeOpenProjectWizard::NeedToUpdate;
-                break;
-            }
-        }
-    }
-
-    if (mode != CMakeOpenProjectWizard::Nothing) {
-        CMakeBuildInfo info(cmakebc);
-        CMakeOpenProjectWizard copw(m_manager, mode, &info);
-        if (copw.exec() == QDialog::Accepted)
-            cmakebc->setUseNinja(copw.useNinja()); // NeedToCreate can change the Ninja setting
-    }
-
-    // reparse
-    parseCMakeLists();
+    //@TODO handle no cmake case
+    ICMakeTool* cmake = CMakeToolManager::cmakeToolForKit(bc->target()->kit());
+    cmake->runCMake(bc->target());
+    connect(cmake,SIGNAL(cmakeFinished(ProjectExplorer::Target*)),this,SLOT(parseCMakeLists(ProjectExplorer::Target*)),Qt::UniqueConnection);
 }
 
 void CMakeProject::activeTargetWasChanged(Target *target)
@@ -184,16 +170,26 @@ QString CMakeProject::shadowBuildDirectory(const QString &projectFilePath, const
     const QString projectName = QFileInfo(info.absolutePath()).fileName();
     ProjectExplorer::ProjectMacroExpander expander(projectFilePath, projectName, k, bcName);
     QDir projectDir = QDir(projectDirectory(projectFilePath));
+
+    if(hasInSourceBuild(projectDir.absolutePath()))
+        return projectDir.absolutePath();
+
     QString buildPath = Utils::expandMacros(Core::DocumentManager::buildDirectory(), &expander);
     return QDir::cleanPath(projectDir.absoluteFilePath(buildPath));
 }
 
-bool CMakeProject::parseCMakeLists()
+bool CMakeProject::parseCMakeLists(Target *t)
 {
+    qDebug()<<"Running parseCMakeLists";
+
     if (!activeTarget() ||
-        !activeTarget()->activeBuildConfiguration()) {
+            !activeTarget()->activeBuildConfiguration()) {
         return false;
     }
+
+    //parse only if active target
+    if(t && t != activeTarget())
+        return false;
 
     CMakeBuildConfiguration *activeBC = static_cast<CMakeBuildConfiguration *>(activeTarget()->activeBuildConfiguration());
     foreach (Core::IDocument *document, Core::EditorManager::documentModel()->openedDocuments())
@@ -255,13 +251,13 @@ bool CMakeProject::parseCMakeLists()
 
     //qDebug()<<"Adding Targets";
     m_buildTargets = cbpparser.buildTargets();
-//        qDebug()<<"Printing targets";
-//        foreach (CMakeBuildTarget ct, m_buildTargets) {
-//            qDebug()<<ct.title<<" with executable:"<<ct.executable;
-//            qDebug()<<"WD:"<<ct.workingDirectory;
-//            qDebug()<<ct.makeCommand<<ct.makeCleanCommand;
-//            qDebug()<<"";
-//        }
+    //        qDebug()<<"Printing targets";
+    //        foreach (CMakeBuildTarget ct, m_buildTargets) {
+    //            qDebug()<<ct.title<<" with executable:"<<ct.executable;
+    //            qDebug()<<"WD:"<<ct.workingDirectory;
+    //            qDebug()<<ct.makeCommand<<ct.makeCleanCommand;
+    //            qDebug()<<"";
+    //        }
 
     updateApplicationAndDeploymentTargets();
 
@@ -368,9 +364,47 @@ bool CMakeProject::parseCMakeLists()
     return true;
 }
 
+KitMatcher *CMakeProject::createRequiredKitMatcher() const
+{
+    return new CMakeKitMatcher();
+}
+
+bool CMakeProject::supportsKit(Kit *k, QString *errorMessage) const
+{
+    CMakeKitMatcher matcher;
+    if(matcher.matches(k))
+        return true;
+    if(errorMessage)
+        *errorMessage = QLatin1String("Could not find compatible CMake Generators");
+    return false;
+}
+
+bool CMakeProject::supportsNoTargetPanel() const
+{
+    return true;
+}
+
+bool CMakeProject::needsConfiguration() const
+{
+    return targets().isEmpty();
+}
+
 bool CMakeProject::isProjectFile(const QString &fileName)
 {
     return m_watchedFiles.contains(fileName);
+}
+
+bool CMakeProject::hasInSourceBuild() const
+{
+    return hasInSourceBuild(projectDirectory());
+}
+
+bool CMakeProject::hasInSourceBuild(const QString &sourcePath)
+{
+    QFileInfo fi(sourcePath + QLatin1String("/CMakeCache.txt"));
+    if (fi.exists())
+        return true;
+    return false;
 }
 
 QList<CMakeBuildTarget> CMakeProject::buildTargets() const
@@ -454,7 +488,7 @@ void CMakeProject::buildTree(CMakeProjectNode *rootNode, QList<ProjectExplorer::
 
     // add added nodes
     foreach (ProjectExplorer::FileNode *fn, added) {
-//        qDebug()<<"added"<<fn->path();
+        //        qDebug()<<"added"<<fn->path();
         // Get relative path to rootNode
         QString parentDir = QFileInfo(fn->path()).absolutePath();
         ProjectExplorer::FolderNode *folder = findOrCreateFolder(rootNode, parentDir);
@@ -464,7 +498,7 @@ void CMakeProject::buildTree(CMakeProjectNode *rootNode, QList<ProjectExplorer::
     // remove old file nodes and check whether folder nodes can be removed
     foreach (ProjectExplorer::FileNode *fn, deleted) {
         ProjectExplorer::FolderNode *parent = fn->parentFolderNode();
-//        qDebug()<<"removed"<<fn->path();
+        //        qDebug()<<"removed"<<fn->path();
         rootNode->removeFileNodes(QList<ProjectExplorer::FileNode *>() << fn, parent);
         // Check for empty parent
         while (parent->subFolderNodes().isEmpty() && parent->fileNodes().isEmpty()) {
@@ -544,60 +578,31 @@ bool CMakeProject::fromMap(const QVariantMap &map)
     if (!Project::fromMap(map))
         return false;
 
-    bool hasUserFile = activeTarget();
-    if (!hasUserFile) {
-        CMakeOpenProjectWizard copw(m_manager, projectDirectory(), Utils::Environment::systemEnvironment());
-        if (copw.exec() != QDialog::Accepted)
+    //make sure there is always a cmake available
+    if(!CMakeToolManager::defaultCMakeTool()->isValid()) {
+        ChooseCMakeWizard wiz;
+        if(wiz.exec() != QDialog::Accepted)
             return false;
-        Kit *k = copw.kit();
-        Target *t = new Target(this, k);
-        CMakeBuildConfiguration *bc(new CMakeBuildConfiguration(t));
-        bc->setDefaultDisplayName(QLatin1String("all"));
-        bc->setUseNinja(copw.useNinja());
-        bc->setBuildDirectory(Utils::FileName::fromString(copw.buildDirectory()));
-        ProjectExplorer::BuildStepList *buildSteps = bc->stepList(ProjectExplorer::Constants::BUILDSTEPS_BUILD);
-        ProjectExplorer::BuildStepList *cleanSteps = bc->stepList(ProjectExplorer::Constants::BUILDSTEPS_CLEAN);
 
-        // Now create a standard build configuration
-        buildSteps->insertStep(0, new MakeStep(buildSteps));
-
-        MakeStep *cleanMakeStep = new MakeStep(cleanSteps);
-        cleanSteps->insertStep(0, cleanMakeStep);
-        cleanMakeStep->setAdditionalArguments(QLatin1String("clean"));
-        cleanMakeStep->setClean(true);
-
-        t->addBuildConfiguration(bc);
-
-        t->updateDefaultDeployConfigurations();
-
-        addTarget(t);
-    } else {
-        // We have a user file, but we could still be missing the cbp file
-        // or simply run createXml with the saved settings
-        QFileInfo sourceFileInfo(m_fileName);
-        CMakeBuildConfiguration *activeBC = qobject_cast<CMakeBuildConfiguration *>(activeTarget()->activeBuildConfiguration());
-        if (!activeBC)
+        if(!CMakeToolManager::defaultCMakeTool()->isValid())
             return false;
-        QString cbpFile = CMakeManager::findCbpFile(QDir(activeBC->buildDirectory().toString()));
-        QFileInfo cbpFileFi(cbpFile);
-
-        CMakeOpenProjectWizard::Mode mode = CMakeOpenProjectWizard::Nothing;
-        if (!cbpFileFi.exists())
-            mode = CMakeOpenProjectWizard::NeedToCreate;
-        else if (cbpFileFi.lastModified() < sourceFileInfo.lastModified())
-            mode = CMakeOpenProjectWizard::NeedToUpdate;
-
-        if (mode != CMakeOpenProjectWizard::Nothing) {
-            CMakeBuildInfo info(activeBC);
-            CMakeOpenProjectWizard copw(m_manager, mode, &info);
-            if (copw.exec() != QDialog::Accepted)
-                return false;
-            else
-                activeBC->setUseNinja(copw.useNinja());
-        }
     }
 
-    parseCMakeLists();
+    //if there is no user file, just leave a empty project
+    //the configure project pane will pup up for the rescue
+    bool hasUserFile = activeTarget();
+    if ( hasUserFile ) {
+        // We have a user file, but we could still be missing the cbp file
+        // or simply run createXml with the saved settings
+        CMakeBuildConfiguration *activeBC = qobject_cast<CMakeBuildConfiguration *>(activeTarget()->activeBuildConfiguration());
+        if (!activeBC)
+            return true; //give the user a chance to setup a cmake target
+
+        //@TODO handle no cmake case
+        ICMakeTool* cmake = CMakeToolManager::cmakeToolForKit(activeBC->target()->kit());
+        cmake->runCMake(activeBC->target());
+        connect(cmake,SIGNAL(cmakeFinished(ProjectExplorer::Target*)),this,SLOT(parseCMakeLists(ProjectExplorer::Target*)),Qt::UniqueConnection);
+    }
 
     m_activeTarget = activeTarget();
     if (m_activeTarget)
@@ -653,15 +658,24 @@ QString CMakeProject::uiHeaderFile(const QString &uiFile)
     return QDir::cleanPath(uiHeaderFilePath);
 }
 
-void CMakeProject::updateRunConfigurations()
+void CMakeProject::updateConfigurations()
 {
     foreach (Target *t, targets())
-        updateRunConfigurations(t);
+        updateConfigurations(t);
 }
 
-// TODO Compare with updateDefaultRunConfigurations();
-void CMakeProject::updateRunConfigurations(Target *t)
+void CMakeProject::updateConfigurations(Target *t)
 {
+    //t->updateDefaultDeployConfigurations();
+    t->updateDefaultRunConfigurations();
+
+    if (t->runConfigurations().isEmpty()) {
+        // Oh no, no run configuration,
+        // create a custom executable run configuration
+        t->addRunConfiguration(new QtSupport::CustomExecutableRunConfiguration(t));
+    }
+
+#if 0
     // *Update* runconfigurations:
     QMultiMap<QString, CMakeRunConfiguration*> existingRunConfigurations;
     QList<ProjectExplorer::RunConfiguration *> toRemove;
@@ -714,6 +728,7 @@ void CMakeProject::updateRunConfigurations(Target *t)
         // create a custom executable run configuration
         t->addRunConfiguration(new QtSupport::CustomExecutableRunConfiguration(t));
     }
+#endif
 }
 
 void CMakeProject::updateApplicationAndDeploymentTargets()
@@ -832,43 +847,65 @@ bool CMakeFile::reload(QString *errorString, ReloadFlag flag, ChangeType type)
     return true;
 }
 
-CMakeBuildSettingsWidget::CMakeBuildSettingsWidget(CMakeBuildConfiguration *bc) : m_buildConfiguration(0)
+CMakeBuildSettingsWidget::CMakeBuildSettingsWidget(CMakeBuildConfiguration *bc) : m_buildConfiguration(bc)
 {
     QFormLayout *fl = new QFormLayout(this);
     fl->setContentsMargins(20, -1, 0, -1);
     fl->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
     setLayout(fl);
 
-    QPushButton *runCmakeButton = new QPushButton(tr("Run cmake"));
-    connect(runCmakeButton, SIGNAL(clicked()),
-            this, SLOT(runCMake()));
-    fl->addRow(tr("Reconfigure project:"), runCmakeButton);
+    bool inSource = CMakeProject::hasInSourceBuild(bc->target()->project()->projectDirectory());
+    if(inSource) {
+        QLabel* inSourceLabel = new QLabel(this);
+        inSourceLabel->setWordWrap(true);
+        inSourceLabel->setText(tr("Qt Creator has detected an <b>in-source-build in %1</b> "
+                                  "which prevents shadow builds. Qt Creator will not allow you to change the build directory. "
+                                  "If you want a shadow build, clean your source directory and re-open the project.")
+                               .arg(bc->target()->project()->projectDirectory()));
+        fl->addRow(inSourceLabel);
+    }
 
-    m_pathLineEdit = new QLineEdit(this);
-    m_pathLineEdit->setReadOnly(true);
+    if(!inSource) {
+        m_pathChooser = new Utils::PathChooser(this);
+        m_pathChooser->setPath(m_buildConfiguration->rawBuildDirectory().toString());
+        fl->addRow(tr("Build directory:"), m_pathChooser);
 
-    QHBoxLayout *hbox = new QHBoxLayout();
-    hbox->addWidget(m_pathLineEdit);
+        connect(m_pathChooser->lineEdit(),SIGNAL(editingFinished()),this,SLOT(onBuilddirChanged()));
+    }
 
-    m_changeButton = new QPushButton(this);
-    m_changeButton->setText(tr("&Change"));
-    connect(m_changeButton, SIGNAL(clicked()), this, SLOT(openChangeBuildDirectoryDialog()));
-    hbox->addWidget(m_changeButton);
+    m_userArguments = new ArgumentsLineEdit(this);
+    fl->addRow(tr("CMake arguments:"),m_userArguments);
+    m_userArguments->setText(Utils::QtcProcess::joinArgs(m_buildConfiguration->arguments()));
+    //m_userArguments->setHistoryCompleter(QLatin1String("CMakeArgumentsLineEdit"));
+    connect(m_userArguments,SIGNAL(editingFinished()),this,SLOT(onArgumentsChanged()));
 
-    fl->addRow(tr("Build directory:"), hbox);
 
-    m_buildConfiguration = bc;
-    m_pathLineEdit->setText(m_buildConfiguration->rawBuildDirectory().toString());
-    if (m_buildConfiguration->buildDirectory().toString() == bc->target()->project()->projectDirectory())
-        m_changeButton->setEnabled(false);
-    else
-        m_changeButton->setEnabled(true);
+    m_generatorBox = new QComboBox(this);
+    ICMakeTool* cmake = CMakeToolManager::cmakeToolForKit(bc->target()->kit());
+    QList<GeneratorInfo> infos = GeneratorInfo::generatorInfosFor(bc->target()->kit(),
+                                                                  cmake->hasCodeBlocksNinjaGenerator() ? GeneratorInfo::OfferNinja : GeneratorInfo::NoNinja,
+                                                                  CMakeManager::preferNinja(),
+                                                                  cmake->hasCodeBlocksMsvcGenerator());
+
+    int idx = -1;
+    QByteArray cachedGenerator = bc->generator();
+    for(int i = 0; i < infos.size(); i++) {
+        const GeneratorInfo &info = infos.at(i);
+        m_generatorBox->addItem(info.displayName(), qVariantFromValue(info));
+        if(info.generator() == cachedGenerator) idx = i;
+    }
+
+    if(idx >= 0)
+        m_generatorBox->setCurrentIndex(idx);
+    connect(m_generatorBox,SIGNAL(currentIndexChanged(int)),this,SLOT(onGeneratorSelected()));
+    fl->addRow(tr("Generator:"),m_generatorBox);
 
     setDisplayName(tr("CMake"));
 }
 
 void CMakeBuildSettingsWidget::openChangeBuildDirectoryDialog()
 {
+#if 0
     CMakeProject *project = static_cast<CMakeProject *>(m_buildConfiguration->target()->project());
     CMakeBuildInfo info(m_buildConfiguration);
     CMakeOpenProjectWizard copw(project->projectManager(), CMakeOpenProjectWizard::ChangeDirectory,
@@ -878,18 +915,32 @@ void CMakeBuildSettingsWidget::openChangeBuildDirectoryDialog()
         m_buildConfiguration->setUseNinja(copw.useNinja());
         m_pathLineEdit->setText(m_buildConfiguration->rawBuildDirectory().toString());
     }
+#endif
 }
 
-void CMakeBuildSettingsWidget::runCMake()
+void CMakeBuildSettingsWidget::onArgumentsChanged()
 {
-    if (!ProjectExplorer::ProjectExplorerPlugin::instance()->saveModifiedFiles())
+    if(!m_userArguments->isValid())
         return;
-    CMakeProject *project = static_cast<CMakeProject *>(m_buildConfiguration->target()->project());
-    CMakeBuildInfo info(m_buildConfiguration);
-    CMakeOpenProjectWizard copw(project->projectManager(),
-                                CMakeOpenProjectWizard::WantToUpdate, &info);
-    if (copw.exec() == QDialog::Accepted)
-        project->parseCMakeLists();
+
+    QStringList args = Utils::QtcProcess::splitArgs(m_userArguments->text());
+
+    if(m_buildConfiguration->arguments() != args)
+        m_buildConfiguration->setArguments(args);
+}
+
+void CMakeBuildSettingsWidget::onBuilddirChanged()
+{
+    qDebug()<<"Changing builddir to: "<<m_pathChooser->fileName().toString();
+    m_buildConfiguration->setBuildDirectory(m_pathChooser->fileName());
+}
+
+void CMakeBuildSettingsWidget::onGeneratorSelected()
+{
+    int curr = m_generatorBox->currentIndex();
+    GeneratorInfo info = m_generatorBox->itemData(curr).value<GeneratorInfo>();
+
+    m_buildConfiguration->setUseNinja(info.isNinja());
 }
 
 /////
@@ -1130,8 +1181,8 @@ void CMakeCbpParser::parseUnit()
                     bool generated = false;
                     QString onlyFileName = QFileInfo(fileName).fileName();
                     if (   (onlyFileName.startsWith(QLatin1String("moc_")) && onlyFileName.endsWith(QLatin1String(".cxx")))
-                        || (onlyFileName.startsWith(QLatin1String("ui_")) && onlyFileName.endsWith(QLatin1String(".h")))
-                        || (onlyFileName.startsWith(QLatin1String("qrc_")) && onlyFileName.endsWith(QLatin1String(".cxx"))))
+                           || (onlyFileName.startsWith(QLatin1String("ui_")) && onlyFileName.endsWith(QLatin1String(".h")))
+                           || (onlyFileName.startsWith(QLatin1String("qrc_")) && onlyFileName.endsWith(QLatin1String(".cxx"))))
                         generated = true;
 
                     if (fileName.endsWith(QLatin1String(".qrc")))

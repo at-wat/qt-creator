@@ -27,34 +27,24 @@
 **
 ****************************************************************************/
 
-#ifndef CMAKEPROJECTCONSTANTS_H
-#define CMAKEPROJECTCONSTANTS_H
+#ifndef CMAKEPROJECTMANAGER_ARGUMENTSLINEEDIT_H
+#define CMAKEPROJECTMANAGER_ARGUMENTSLINEEDIT_H
+
+#include "cmakeprojectmanager_global.h"
+#include <utils/basevalidatinglineedit.h>
 
 namespace CMakeProjectManager {
-namespace Constants {
 
-const char PROJECTCONTEXT[] = "CMakeProject.ProjectContext";
-const char CMAKEMIMETYPE[]  = "text/x-cmake";
-const char CMAKE_EDITOR_ID[] = "CMakeProject.CMakeEditor";
-const char CMAKE_EDITOR_DISPLAY_NAME[] = "CMake Editor";
-const char C_CMAKEEDITOR[] = "CMakeProject.Context.CMakeEditor";
-const char RUNCMAKE[] = "CMakeProject.RunCMake";
-const char RUNCMAKECONTEXTMENU[] = "CMakeProject.RunCMakeContextMenu";
-const char CMAKE_SUPPORT_FEATURE[] = "CMake.CMakeSupport";
+class CMAKEPROJECTMANAGER_EXPORT ArgumentsLineEdit : public Utils::BaseValidatingLineEdit
+{
+    Q_OBJECT
+public:
+    explicit ArgumentsLineEdit(QWidget* parent = 0);
+protected:
+    virtual bool validate(const QString &value, QString *errorMessage) const;
 
-// Project
-const char CMAKEPROJECT_ID[] = "CMakeProjectManager.CMakeProject";
+};
 
-// Buildconfiguration
-const char CMAKE_BC_ID[] = "CMakeProjectManager.CMakeBuildConfiguration";
-
-// Menu
-const char M_CONTEXT[] = "CMakeEditor.ContextMenu";
-
-// CMake Tool
-const char CMAKE_TOOL_ID[] = "CMakeProjectManager.DefaultCMakeTool";
-
-} // namespace Constants
 } // namespace CMakeProjectManager
 
-#endif // CMAKEPROJECTCONSTANTS_H
+#endif // CMAKEPROJECTMANAGER_ARGUMENTSLINEEDIT_H

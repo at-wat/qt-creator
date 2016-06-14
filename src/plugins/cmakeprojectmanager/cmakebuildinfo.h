@@ -31,6 +31,7 @@
 #define CMAKEBUILDINFO_H
 
 #include "cmakebuildconfiguration.h"
+#include "cmakeprojectmanager_global.h"
 
 #include <projectexplorer/buildinfo.h>
 #include <projectexplorer/kit.h>
@@ -41,13 +42,13 @@
 
 namespace CMakeProjectManager {
 
-class CMakeBuildInfo : public ProjectExplorer::BuildInfo
+class CMAKEPROJECTMANAGER_EXPORT CMakeBuildInfo : public ProjectExplorer::BuildInfo
 {
 public:
     CMakeBuildInfo(const ProjectExplorer::IBuildConfigurationFactory *f) :
         ProjectExplorer::BuildInfo(f), useNinja(false) { }
 
-    CMakeBuildInfo(const Internal::CMakeBuildConfiguration *bc) :
+    CMakeBuildInfo(const CMakeBuildConfiguration *bc) :
         ProjectExplorer::BuildInfo(ProjectExplorer::IBuildConfigurationFactory::find(bc->target()))
     {
         displayName = bc->displayName();

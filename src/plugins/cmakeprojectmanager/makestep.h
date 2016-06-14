@@ -30,6 +30,7 @@
 #ifndef MAKESTEP_H
 #define MAKESTEP_H
 
+#include "cmakeprojectmanager_global.h"
 #include <projectexplorer/abstractprocessstep.h>
 
 QT_BEGIN_NAMESPACE
@@ -43,12 +44,10 @@ class ToolChain;
 }
 
 namespace CMakeProjectManager {
-namespace Internal {
-
 class CMakeBuildConfiguration;
 class MakeStepFactory;
 
-class MakeStep : public ProjectExplorer::AbstractProcessStep
+class CMAKEPROJECTMANAGER_EXPORT MakeStep : public ProjectExplorer::AbstractProcessStep
 {
     Q_OBJECT
     friend class MakeStepFactory;
@@ -75,7 +74,7 @@ public:
     QString additionalArguments() const;
     void setAdditionalArguments(const QString &list);
 
-    QString makeCommand(ProjectExplorer::ToolChain *tc, const Utils::Environment &env) const;
+    virtual QString makeCommand(ProjectExplorer::ToolChain *tc, const Utils::Environment &env) const;
 
     void setClean(bool clean);
 
@@ -119,7 +118,7 @@ private:
     CMakeBuildConfiguration *m_activeConfiguration;
 };
 
-class MakeStepConfigWidget :public ProjectExplorer::BuildStepConfigWidget
+class CMAKEPROJECTMANAGER_EXPORT MakeStepConfigWidget :public ProjectExplorer::BuildStepConfigWidget
 {
     Q_OBJECT
 public:
@@ -140,7 +139,7 @@ private:
     QString m_summaryText;
 };
 
-class MakeStepFactory : public ProjectExplorer::IBuildStepFactory
+class CMAKEPROJECTMANAGER_EXPORT MakeStepFactory : public ProjectExplorer::IBuildStepFactory
 {
     Q_OBJECT
 
@@ -157,9 +156,11 @@ public:
 
     QList<Core::Id> availableCreationIds(ProjectExplorer::BuildStepList *bc) const;
     QString displayNameForId(const Core::Id id) const;
+
+private:
+    bool canHandle (ProjectExplorer::BuildStepList *parent) const;
 };
 
-} // namespace Internal
 } // namespace CMakeProjectManager
 
 #endif // MAKESTEP_H

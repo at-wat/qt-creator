@@ -188,6 +188,7 @@ void CMakeProjectPlugin::testCMakeParser_data()
 
 void CMakeProjectPlugin::testCMakeParser()
 {
+#if 0
     OutputParserTester testbench;
     testbench.appendOutputParser(new CMakeParser);
     QFETCH(QString, input);
@@ -200,6 +201,7 @@ void CMakeProjectPlugin::testCMakeParser()
     testbench.testParsing(input, inputChannel,
                           tasks, childStdOutLines, childStdErrLines,
                           outputLines);
+#endif
 }
 
 #endif

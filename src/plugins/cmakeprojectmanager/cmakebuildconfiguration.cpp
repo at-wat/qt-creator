@@ -30,9 +30,10 @@
 #include "cmakebuildconfiguration.h"
 
 #include "cmakebuildinfo.h"
-#include "cmakeopenprojectwizard.h"
 #include "cmakeproject.h"
 #include "cmakeprojectconstants.h"
+#include "cmaketoolmanager.h"
+#include "generatorinfo.h"
 
 #include <coreplugin/icore.h>
 #include <coreplugin/mimedatabase.h>
@@ -40,8 +41,10 @@
 #include <projectexplorer/kit.h>
 #include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/target.h>
+#include <extensionsystem/pluginmanager.h>
 
 #include <utils/qtcassert.h>
+#include <utils/qtcprocess.h>
 
 #include <QInputDialog>
 
@@ -50,15 +53,13 @@ using namespace Internal;
 
 namespace {
 const char USE_NINJA_KEY[] = "CMakeProjectManager.CMakeBuildConfiguration.UseNinja";
+const char USER_ARGS_KEY[] = "CMakeProjectManager.CMakeBuildConfiguration.UserArguments";
 } // namespace
 
 CMakeBuildConfiguration::CMakeBuildConfiguration(ProjectExplorer::Target *parent) :
     BuildConfiguration(parent, Core::Id(Constants::CMAKE_BC_ID)), m_useNinja(false)
 {
-    CMakeProject *project = static_cast<CMakeProject *>(parent->project());
-    setBuildDirectory(Utils::FileName::fromString(project->shadowBuildDirectory(project->projectFilePath(),
-                                                                                parent->kit(),
-                                                                                displayName())));
+    init(parent);
 }
 
 CMakeBuildConfiguration::CMakeBuildConfiguration(ProjectExplorer::Target *parent,
@@ -69,12 +70,20 @@ CMakeBuildConfiguration::CMakeBuildConfiguration(ProjectExplorer::Target *parent
 {
     Q_ASSERT(parent);
     cloneSteps(source);
+
+    connect(this,SIGNAL(argumentsChanged(QStringList)),this,SLOT(runCMake()));
+    connect(this,SIGNAL(buildDirectoryChanged()),this,SLOT(runCMake()));
+    connect(this,SIGNAL(useNinjaChanged(bool)),this,SLOT(cleanAndRunCMake()));
 }
 
 QVariantMap CMakeBuildConfiguration::toMap() const
 {
     QVariantMap map(ProjectExplorer::BuildConfiguration::toMap());
     map.insert(QLatin1String(USE_NINJA_KEY), m_useNinja);
+
+    if(m_arguments.size())
+        map.insert(QLatin1String(USER_ARGS_KEY),Utils::QtcProcess::joinArgs(m_arguments));
+
     return map;
 }
 
@@ -83,9 +92,69 @@ bool CMakeBuildConfiguration::fromMap(const QVariantMap &map)
     if (!BuildConfiguration::fromMap(map))
         return false;
 
+    CMakeProject* project = static_cast<CMakeProject*>(this->target()->project());
+
     m_useNinja = map.value(QLatin1String(USE_NINJA_KEY), false).toBool();
+    if(map.contains(QLatin1String(USER_ARGS_KEY)))
+        m_arguments = Utils::QtcProcess::splitArgs(map.value(QLatin1String(USER_ARGS_KEY)).toString());
+
+    /*
+     * If this evaluates to true, it means there was a in source build before and
+     * was cleaned out by the user. Instead of querying the user for some build
+     * directory we just use the default one, the user can always change this if
+     * he does not like it
+     */
+    if(this->buildDirectory() == Utils::FileName::fromString(project->projectDirectory()) && !project->hasInSourceBuild()) {
+        this->setBuildDirectory(Utils::FileName::fromString(
+                                    CMakeProject::shadowBuildDirectory(project->projectFilePath()
+                                                                       ,this->target()->kit()
+                                                                       ,this->displayName())));
+    }
 
     return true;
+}
+
+void CMakeBuildConfiguration::setBuildDirectory(const Utils::FileName &directory)
+{
+    if (directory == buildDirectory())
+        return;
+    BuildConfiguration::setBuildDirectory(directory);
+}
+
+CMakeBuildConfiguration::CMakeBuildConfiguration(ProjectExplorer::Target *parent, const Core::Id &id) :
+    BuildConfiguration(parent,id), m_useNinja(false)
+{
+    init(parent);
+}
+
+void CMakeBuildConfiguration::cleanAndRunCMake()
+{
+    QDir dir(buildDirectory().toString());
+    dir.removeRecursively();
+
+    runCMake();
+}
+
+void CMakeBuildConfiguration::runCMake()
+{
+    ICMakeTool* cmake = CMakeToolManager::cmakeToolForKit(target()->kit());
+    cmake->runCMake(target());
+    connect(cmake,SIGNAL(cmakeFinished(ProjectExplorer::Target*)),this,SLOT(parseCMakeLists(ProjectExplorer::Target*)),Qt::UniqueConnection);
+}
+
+void CMakeBuildConfiguration::init(ProjectExplorer::Target *parent)
+{
+    CMakeProject *project = static_cast<CMakeProject *>(parent->project());
+
+
+    setBuildDirectory(Utils::FileName::fromString(project->shadowBuildDirectory(project->projectFilePath(),
+                                                                                parent->kit(),
+                                                                                displayName())));
+
+
+    connect(this,SIGNAL(argumentsChanged(QStringList)),this,SLOT(runCMake()));
+    connect(this,SIGNAL(buildDirectoryChanged()),this,SLOT(runCMake()));
+    connect(this,SIGNAL(useNinjaChanged(bool)),this,SLOT(cleanAndRunCMake()));
 }
 
 bool CMakeBuildConfiguration::useNinja() const
@@ -101,6 +170,22 @@ void CMakeBuildConfiguration::setUseNinja(bool useNninja)
     }
 }
 
+QStringList CMakeBuildConfiguration::arguments() const
+{
+    return m_arguments;
+}
+
+void CMakeBuildConfiguration::setArguments(const QStringList &args)
+{
+    m_arguments = args;
+    emit argumentsChanged(m_arguments);
+}
+
+QByteArray CMakeBuildConfiguration::generator() const
+{
+    return cachedGeneratorFromFile(buildDirectory().toString() + QLatin1String("/CMakeCache.txt"));
+}
+
 CMakeBuildConfiguration::~CMakeBuildConfiguration()
 { }
 
@@ -108,6 +193,29 @@ ProjectExplorer::NamedWidget *CMakeBuildConfiguration::createConfigWidget()
 {
     return new CMakeBuildSettingsWidget(this);
 }
+
+QByteArray CMakeBuildConfiguration::cachedGeneratorFromFile(const QString &cache)
+{
+    QFile fi(cache);
+    if (fi.exists()) {
+        // Cache exists, then read it...
+        if (fi.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            while (!fi.atEnd()) {
+                QByteArray line = fi.readLine();
+                if (line.startsWith("CMAKE_GENERATOR:INTERNAL=")) {
+                    int splitpos = line.indexOf('=');
+                    if (splitpos != -1) {
+                        QByteArray cachedGenerator = line.mid(splitpos + 1).trimmed();
+                        if (!cachedGenerator.isEmpty())
+                            return cachedGenerator;
+                    }
+                }
+            }
+        }
+    }
+    return QByteArray();
+}
+
 
 /*!
   \class CMakeBuildConfigurationFactory
@@ -133,6 +241,13 @@ QList<ProjectExplorer::BuildInfo *> CMakeBuildConfigurationFactory::availableBui
 
     CMakeBuildInfo *info = createBuildInfo(parent->kit(),
                                            parent->project()->projectDirectory());
+
+
+    info->buildDirectory =  Utils::FileName::fromString(CMakeProject::shadowBuildDirectory(parent->project()->projectFilePath(),
+                                                                                           parent->kit(),
+                                                                                           info->displayName));
+
+
     result << info;
     return result;
 }
@@ -150,10 +265,13 @@ QList<ProjectExplorer::BuildInfo *> CMakeBuildConfigurationFactory::availableSet
     CMakeBuildInfo *info = createBuildInfo(k, ProjectExplorer::Project::projectDirectory(projectPath));
     //: The name of the build configuration created by default for a cmake project.
     info->displayName = tr("Default");
+
     info->buildDirectory
-            = Utils::FileName::fromString(CMakeProject::shadowBuildDirectory(projectPath, k,
+            = Utils::FileName::fromString(CMakeProject::shadowBuildDirectory(projectPath,k,
                                                                              info->displayName));
+
     result << info;
+
     return result;
 }
 
@@ -173,10 +291,6 @@ ProjectExplorer::BuildConfiguration *CMakeBuildConfigurationFactory::create(Proj
                                                                             parent->kit(),
                                                                             copy.displayName));
 
-    CMakeOpenProjectWizard copw(project->projectManager(), CMakeOpenProjectWizard::ChangeDirectory, &copy);
-    if (copw.exec() != QDialog::Accepted)
-        return 0;
-
     CMakeBuildConfiguration *bc = new CMakeBuildConfiguration(parent);
     bc->setDisplayName(copy.displayName);
     bc->setDefaultDisplayName(copy.displayName);
@@ -192,8 +306,8 @@ ProjectExplorer::BuildConfiguration *CMakeBuildConfigurationFactory::create(Proj
     cleanMakeStep->setAdditionalArguments(QLatin1String("clean"));
     cleanMakeStep->setClean(true);
 
-    bc->setBuildDirectory(Utils::FileName::fromString(copw.buildDirectory()));
-    bc->setUseNinja(copw.useNinja());
+    bc->setBuildDirectory(Utils::FileName::fromString(copy.buildDirectory.toString()));
+    bc->setUseNinja(copy.useNinja);
 
     // Default to all
     if (project->hasBuildTarget(QLatin1String("all")))
@@ -246,14 +360,32 @@ bool CMakeBuildConfigurationFactory::canHandle(const ProjectExplorer::Target *t)
 CMakeBuildInfo *CMakeBuildConfigurationFactory::createBuildInfo(const ProjectExplorer::Kit *k,
                                                                 const QString &sourceDir) const
 {
+    //this is safe, because the kit will not be changed and the generator not used outside this function
+    ProjectExplorer::Kit* otherK = const_cast<ProjectExplorer::Kit*>(k);
+
+    CMakeManager *manager = ExtensionSystem::PluginManager::getObject<CMakeManager>();
+    Q_ASSERT(manager);
+
+    ICMakeTool* cmake = CMakeToolManager::cmakeToolForKit(k);
+    if(!cmake)
+        return 0;
+
+    //there should always be a generator when we reach this stage
+    QList<GeneratorInfo> generators = GeneratorInfo::generatorInfosFor(otherK
+                                                                       ,GeneratorInfo::OfferNinja
+                                                                       ,manager->preferNinja()
+                                                                       ,cmake->hasCodeBlocksMsvcGenerator());
+
     CMakeBuildInfo *info = new CMakeBuildInfo(this);
     info->typeName = tr("Build");
     info->kitId = k->id();
     info->environment = Utils::Environment::systemEnvironment();
     k->addToEnvironment(info->environment);
-    info->useNinja = false;
     info->sourceDirectory = sourceDir;
-    info->supportsShadowBuild = true;
+    info->supportsShadowBuild = !CMakeProject::hasInSourceBuild(info->sourceDirectory);
+
+    //if the first generator is ninja, that is the preferred one
+    info->useNinja = (generators.size() > 0) ? generators.first().isNinja() : false;
 
     return info;
 }
@@ -276,7 +408,7 @@ ProjectExplorer::BuildConfiguration::BuildType CMakeBuildConfiguration::buildTyp
 
     // Cover all common CMake build types
     if (cmakeBuildType.compare(QLatin1String("Release"), Qt::CaseInsensitive) == 0
-        || cmakeBuildType.compare(QLatin1String("MinSizeRel"), Qt::CaseInsensitive) == 0)
+            || cmakeBuildType.compare(QLatin1String("MinSizeRel"), Qt::CaseInsensitive) == 0)
     {
         return Release;
     } else if (cmakeBuildType.compare(QLatin1String("Debug"), Qt::CaseInsensitive) == 0

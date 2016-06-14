@@ -30,6 +30,7 @@
 #ifndef CMAKEBUILDCONFIGURATION_H
 #define CMAKEBUILDCONFIGURATION_H
 
+#include "cmakeprojectmanager_global.h"
 #include <projectexplorer/buildconfiguration.h>
 #include <projectexplorer/abi.h>
 
@@ -39,13 +40,10 @@ class ToolChain;
 
 namespace CMakeProjectManager {
 class CMakeBuildInfo;
-
-namespace Internal {
 class CMakeProject;
-
 class CMakeBuildConfigurationFactory;
 
-class CMakeBuildConfiguration : public ProjectExplorer::BuildConfiguration
+class CMAKEPROJECTMANAGER_EXPORT CMakeBuildConfiguration : public ProjectExplorer::BuildConfiguration
 {
     Q_OBJECT
     friend class CMakeBuildConfigurationFactory;
@@ -59,25 +57,39 @@ public:
     QVariantMap toMap() const;
 
     BuildType buildType() const;
-
     bool useNinja() const;
     void setUseNinja(bool);
 
+    QStringList arguments() const;
+    void setArguments (const QStringList &args);
+
+    QByteArray generator () const;
+
+    static QByteArray cachedGeneratorFromFile(const QString &cache);
+    void setBuildDirectory(const Utils::FileName &directory);
 signals:
     void useNinjaChanged(bool);
+    void argumentsChanged(const QStringList& list);
 
 protected:
+    CMakeBuildConfiguration(ProjectExplorer::Target *parent, const Core::Id& id);
     CMakeBuildConfiguration(ProjectExplorer::Target *parent, CMakeBuildConfiguration *source);
     bool fromMap(const QVariantMap &map);
 
+protected slots:
+    void cleanAndRunCMake();
+    void runCMake();
+
 private:
+    void init(ProjectExplorer::Target* parent);
+    QStringList m_arguments;
     QString m_msvcVersion;
     bool m_useNinja;
 
     friend class CMakeProject;
 };
 
-class CMakeBuildConfigurationFactory : public ProjectExplorer::IBuildConfigurationFactory
+class CMAKEPROJECTMANAGER_EXPORT CMakeBuildConfigurationFactory : public ProjectExplorer::IBuildConfigurationFactory
 {
     Q_OBJECT
 
@@ -103,7 +115,6 @@ private:
     CMakeBuildInfo *createBuildInfo(const ProjectExplorer::Kit *k, const QString &sourceDir) const;
 };
 
-} // namespace Internal
 } // namespace CMakeProjectManager
 
 #endif // CMAKEBUILDCONFIGURATION_H

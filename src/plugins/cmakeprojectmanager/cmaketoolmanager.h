@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2014 Digia Plc and/or its subsidiary(-ies).
+** Copyright (C) 2014 Canonical Ltd.
 ** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of Qt Creator.
@@ -27,34 +27,38 @@
 **
 ****************************************************************************/
 
-#ifndef CMAKEPROJECTCONSTANTS_H
-#define CMAKEPROJECTCONSTANTS_H
+#ifndef CMAKEPROJECTMANAGER_CMAKETOOLMANAGER_H
+#define CMAKEPROJECTMANAGER_CMAKETOOLMANAGER_H
+
+#include "cmakeprojectmanager_global.h"
+#include "cmaketool.h"
+
+#include <coreplugin/id.h>
 
 namespace CMakeProjectManager {
-namespace Constants {
 
-const char PROJECTCONTEXT[] = "CMakeProject.ProjectContext";
-const char CMAKEMIMETYPE[]  = "text/x-cmake";
-const char CMAKE_EDITOR_ID[] = "CMakeProject.CMakeEditor";
-const char CMAKE_EDITOR_DISPLAY_NAME[] = "CMake Editor";
-const char C_CMAKEEDITOR[] = "CMakeProject.Context.CMakeEditor";
-const char RUNCMAKE[] = "CMakeProject.RunCMake";
-const char RUNCMAKECONTEXTMENU[] = "CMakeProject.RunCMakeContextMenu";
-const char CMAKE_SUPPORT_FEATURE[] = "CMake.CMakeSupport";
+class CMAKEPROJECTMANAGER_EXPORT CMakeToolManager : public QObject
+{
+    Q_OBJECT
+public:
+    CMakeToolManager ();
+    ~CMakeToolManager ();
 
-// Project
-const char CMAKEPROJECT_ID[] = "CMakeProjectManager.CMakeProject";
+    static void setUserCmakePath (const QString &path);
+    static QString userCMakePath();
 
-// Buildconfiguration
-const char CMAKE_BC_ID[] = "CMakeProjectManager.CMakeBuildConfiguration";
+    static CMakeTool *defaultCMakeTool ();
+    static bool registerCMakeTool (ICMakeTool* tool);
+    static ICMakeTool *cmakeTool (const Core::Id& id);
+    static ICMakeTool *cmakeToolForKit (const ProjectExplorer::Kit *kit);
+    static QString findCmakeExecutable();
+private:
+    static CMakeToolManager *m_instance;
+    CMakeTool m_cmakeToolForUser;
+    CMakeTool m_cmakeToolForSystem;
+    QMap<uint,ICMakeTool*> m_cmakeTools;
+};
 
-// Menu
-const char M_CONTEXT[] = "CMakeEditor.ContextMenu";
-
-// CMake Tool
-const char CMAKE_TOOL_ID[] = "CMakeProjectManager.DefaultCMakeTool";
-
-} // namespace Constants
 } // namespace CMakeProjectManager
 
-#endif // CMAKEPROJECTCONSTANTS_H
+#endif // CMAKEPROJECTMANAGER_CMAKETOOLMANAGER_H

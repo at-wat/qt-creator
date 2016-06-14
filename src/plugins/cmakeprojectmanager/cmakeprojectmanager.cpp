@@ -28,9 +28,9 @@
 ****************************************************************************/
 
 #include "cmakeprojectmanager.h"
-#include "cmakeopenprojectwizard.h"
 #include "cmakeprojectconstants.h"
 #include "cmakeproject.h"
+#include "cmaketoolmanager.h"
 
 #include <utils/synchronousprocess.h>
 #include <utils/qtcprocess.h>
@@ -43,7 +43,7 @@
 #include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/projectexplorer.h>
 #include <projectexplorer/target.h>
-#include <utils/QtConcurrentTools>
+//#include <utils/QtConcurrentTools>
 #include <QtConcurrentRun>
 #include <QCoreApplication>
 #include <QSettings>
@@ -56,11 +56,15 @@
 #include <QGroupBox>
 #include <QSpacerItem>
 
+using namespace CMakeProjectManager;
 using namespace CMakeProjectManager::Internal;
+
+CMakeManager* CMakeManager::m_instance = 0;
 
 CMakeManager::CMakeManager(CMakeSettingsPage *cmakeSettingsPage)
     : m_settingsPage(cmakeSettingsPage)
 {
+    m_instance = this;
     ProjectExplorer::ProjectExplorerPlugin *projectExplorer = ProjectExplorer::ProjectExplorerPlugin::instance();
     connect(projectExplorer, SIGNAL(aboutToShowContextMenu(ProjectExplorer::Project*,ProjectExplorer::Node*)),
             this, SLOT(updateContextMenu(ProjectExplorer::Project*,ProjectExplorer::Node*)));
@@ -111,21 +115,22 @@ void CMakeManager::runCMake(ProjectExplorer::Project *project)
 {
     if (!project)
         return;
-    CMakeProject *cmakeProject = qobject_cast<CMakeProject *>(project);
-    if (!cmakeProject || !cmakeProject->activeTarget() || !cmakeProject->activeTarget()->activeBuildConfiguration())
+
+    if(project->id() != Constants::CMAKEPROJECT_ID)
+        return;
+
+    CMakeProject *cmakeProject = static_cast<CMakeProject *>(project);
+    if (!cmakeProject)
+        return;
+    else if (!cmakeProject->activeTarget() || !cmakeProject->activeTarget()->activeBuildConfiguration())
         return;
 
     if (!ProjectExplorer::ProjectExplorerPlugin::instance()->saveModifiedFiles())
         return;
 
-    CMakeBuildConfiguration *bc
-            = static_cast<CMakeBuildConfiguration *>(cmakeProject->activeTarget()->activeBuildConfiguration());
-
-    CMakeBuildInfo info(bc);
-
-    CMakeOpenProjectWizard copw(this, CMakeOpenProjectWizard::WantToUpdate, &info);
-    if (copw.exec() == QDialog::Accepted)
-        cmakeProject->parseCMakeLists();
+    ICMakeTool* cmake = CMakeToolManager::cmakeToolForKit(cmakeProject->activeTarget()->kit());
+    cmake->runCMake(cmakeProject->activeTarget());
+    connect(cmake,SIGNAL(cmakeFinished(ProjectExplorer::Target*)),cmakeProject,SLOT(parseCMakeLists(ProjectExplorer::Target*)),Qt::UniqueConnection);
 }
 
 ProjectExplorer::Project *CMakeManager::openProject(const QString &fileName, QString *errorString)
@@ -145,63 +150,9 @@ QString CMakeManager::mimeType() const
     return QLatin1String(Constants::CMAKEMIMETYPE);
 }
 
-QString CMakeManager::cmakeExecutable() const
+bool CMakeManager::preferNinja()
 {
-    return m_settingsPage->cmakeExecutable();
-}
-
-bool CMakeManager::isCMakeExecutableValid() const
-{
-    return m_settingsPage->isCMakeExecutableValid();
-}
-
-void CMakeManager::setCMakeExecutable(const QString &executable)
-{
-    m_settingsPage->setCMakeExecutable(executable);
-}
-
-bool CMakeManager::hasCodeBlocksMsvcGenerator() const
-{
-    return m_settingsPage->hasCodeBlocksMsvcGenerator();
-}
-
-bool CMakeManager::hasCodeBlocksNinjaGenerator() const
-{
-    return m_settingsPage->hasCodeBlocksNinjaGenerator();
-}
-
-bool CMakeManager::preferNinja() const
-{
-    return m_settingsPage->preferNinja();
-}
-
-// need to refactor this out
-// we probably want the process instead of this function
-// cmakeproject then could even run the cmake process in the background, adding the files afterwards
-// sounds like a plan
-void CMakeManager::createXmlFile(Utils::QtcProcess *proc, const QString &arguments,
-                                 const QString &sourceDirectory, const QDir &buildDirectory,
-                                 const Utils::Environment &env, const QString &generator)
-{
-    // We create a cbp file, only if we didn't find a cbp file in the base directory
-    // Yet that can still override cbp files in subdirectories
-    // And we are creating tons of files in the source directories
-    // All of that is not really nice.
-    // The mid term plan is to move away from the CodeBlocks Generator and use our own
-    // QtCreator generator, which actually can be very similar to the CodeBlock Generator
-    QString buildDirectoryPath = buildDirectory.absolutePath();
-    buildDirectory.mkpath(buildDirectoryPath);
-    proc->setWorkingDirectory(buildDirectoryPath);
-    proc->setEnvironment(env);
-
-    const QString srcdir = buildDirectory.exists(QLatin1String("CMakeCache.txt")) ?
-                QString(QLatin1Char('.')) : sourceDirectory;
-    QString args;
-    Utils::QtcProcess::addArg(&args, srcdir);
-    Utils::QtcProcess::addArgs(&args, arguments);
-    Utils::QtcProcess::addArg(&args, generator);
-    proc->setCommand(cmakeExecutable(), args);
-    proc->start();
+    return m_instance->m_settingsPage->preferNinja();
 }
 
 QString CMakeManager::findCbpFile(const QDir &directory)
@@ -247,144 +198,4 @@ QString CMakeManager::qtVersionForQMake(const QString &qmakePath)
         return regexp2.cap(1);
     }
     return QString();
-}
-
-/////
-// CMakeSettingsPage
-////
-
-
-CMakeSettingsPage::CMakeSettingsPage()
-    :  m_pathchooser(0), m_preferNinja(0)
-{
-    setId("Z.CMake");
-    setDisplayName(tr("CMake"));
-    setCategory(ProjectExplorer::Constants::PROJECTEXPLORER_SETTINGS_CATEGORY);
-    setDisplayCategory(QCoreApplication::translate("ProjectExplorer",
-       ProjectExplorer::Constants::PROJECTEXPLORER_SETTINGS_TR_CATEGORY));
-    setCategoryIcon(QLatin1String(ProjectExplorer::Constants::PROJECTEXPLORER_SETTINGS_CATEGORY_ICON));
-
-    QSettings *settings = Core::ICore::settings();
-    settings->beginGroup(QLatin1String("CMakeSettings"));
-    m_cmakeValidatorForUser.setCMakeExecutable(settings->value(QLatin1String("cmakeExecutable")).toString());
-    settings->endGroup();
-
-    m_cmakeValidatorForSystem.setCMakeExecutable(findCmakeExecutable());
-}
-
-bool CMakeSettingsPage::isCMakeExecutableValid() const
-{
-    if (m_cmakeValidatorForUser.isValid())
-        return true;
-
-    return m_cmakeValidatorForSystem.isValid();
-}
-
-CMakeSettingsPage::~CMakeSettingsPage()
-{
-    m_cmakeValidatorForUser.cancel();
-    m_cmakeValidatorForSystem.cancel();
-}
-
-QString CMakeSettingsPage::findCmakeExecutable() const
-{
-    return Utils::Environment::systemEnvironment().searchInPath(QLatin1String("cmake"));
-}
-
-QWidget *CMakeSettingsPage::createPage(QWidget *parent)
-{
-    QWidget *outerWidget = new QWidget(parent);
-    QFormLayout *formLayout = new QFormLayout(outerWidget);
-    formLayout->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-    m_pathchooser = new Utils::PathChooser;
-    m_pathchooser->setExpectedKind(Utils::PathChooser::ExistingCommand);
-    formLayout->addRow(tr("Executable:"), m_pathchooser);
-    formLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::Ignored, QSizePolicy::MinimumExpanding));
-    m_pathchooser->setPath(m_cmakeValidatorForUser.cmakeExecutable());
-
-    m_preferNinja = new QCheckBox(tr("Prefer Ninja generator (CMake 2.8.9 or higher required)"));
-    m_preferNinja->setChecked(preferNinja());
-    formLayout->addRow(m_preferNinja);
-
-    return outerWidget;
-}
-
-void CMakeSettingsPage::saveSettings() const
-{
-    QSettings *settings = Core::ICore::settings();
-    settings->beginGroup(QLatin1String("CMakeSettings"));
-    settings->setValue(QLatin1String("cmakeExecutable"), m_cmakeValidatorForUser.cmakeExecutable());
-    settings->setValue(QLatin1String("preferNinja"), m_preferNinja->isChecked());
-    settings->endGroup();
-}
-
-void CMakeSettingsPage::apply()
-{
-    if (!m_pathchooser) // page was never shown
-        return;
-    if (m_cmakeValidatorForUser.cmakeExecutable() != m_pathchooser->path())
-        m_cmakeValidatorForUser.setCMakeExecutable(m_pathchooser->path());
-    saveSettings();
-}
-
-void CMakeSettingsPage::finish()
-{
-
-}
-
-QString CMakeSettingsPage::cmakeExecutable() const
-{
-    if (!isCMakeExecutableValid())
-        return QString();
-
-    if (m_cmakeValidatorForUser.isValid())
-        return m_cmakeValidatorForUser.cmakeExecutable();
-    if (m_cmakeValidatorForSystem.isValid())
-        return m_cmakeValidatorForSystem.cmakeExecutable();
-    return QString();
-}
-
-void CMakeSettingsPage::setCMakeExecutable(const QString &executable)
-{
-    if (m_cmakeValidatorForUser.cmakeExecutable() == executable)
-        return;
-    m_cmakeValidatorForUser.setCMakeExecutable(executable);
-}
-
-bool CMakeSettingsPage::hasCodeBlocksMsvcGenerator() const
-{
-    if (m_cmakeValidatorForUser.isValid())
-        return m_cmakeValidatorForUser.hasCodeBlocksMsvcGenerator();
-    if (m_cmakeValidatorForSystem.isValid())
-        return m_cmakeValidatorForSystem.hasCodeBlocksMsvcGenerator();
-    return false;
-}
-
-bool CMakeSettingsPage::hasCodeBlocksNinjaGenerator() const
-{
-    if (m_cmakeValidatorForUser.isValid())
-        return m_cmakeValidatorForUser.hasCodeBlocksNinjaGenerator();
-    if (m_cmakeValidatorForSystem.isValid())
-        return m_cmakeValidatorForSystem.hasCodeBlocksNinjaGenerator();
-    return false;
-}
-
-bool CMakeSettingsPage::preferNinja() const
-{
-    QSettings *settings = Core::ICore::settings();
-    settings->beginGroup(QLatin1String("CMakeSettings"));
-    const bool r = settings->value(QLatin1String("preferNinja"), false).toBool();
-    settings->endGroup();
-    return r;
-}
-
-TextEditor::Keywords CMakeSettingsPage::keywords()
-{
-    if (m_cmakeValidatorForUser.isValid())
-        return m_cmakeValidatorForUser.keywords();
-
-    if (m_cmakeValidatorForSystem.isValid())
-        return m_cmakeValidatorForSystem.keywords();
-
-    return TextEditor::Keywords(QStringList(), QStringList(), QMap<QString, QStringList>());
 }

@@ -41,6 +41,7 @@
 #include <projectexplorer/projectexplorer.h>
 #include <projectexplorer/target.h>
 #include <projectexplorer/toolchain.h>
+#include <projectexplorer/projectconfiguration.h>
 
 #include <qtsupport/qtkitinformation.h>
 #include <qtsupport/qtparser.h>
@@ -409,7 +410,7 @@ void MakeStepConfigWidget::selectedBuildTargetsChanged()
 {
     disconnect(m_buildTargetsList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(itemChanged(QListWidgetItem*)));
     for (int y = 0; y < m_buildTargetsList->count(); ++y) {
-        QListWidgetItem *item = m_buildTargetsList->itemAt(0, y);
+        QListWidgetItem *item = m_buildTargetsList->item(y);
         item->setCheckState(m_makeStep->buildsBuildTarget(item->text()) ? Qt::Checked : Qt::Unchecked);
     }
     connect(m_buildTargetsList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(itemChanged(QListWidgetItem*)));
@@ -465,6 +466,9 @@ MakeStepFactory::~MakeStepFactory()
 
 bool MakeStepFactory::canCreate(BuildStepList *parent, const Core::Id id) const
 {
+    if(!canHandle(parent))
+        return false;
+
     if (parent->target()->project()->id() == Constants::CMAKEPROJECT_ID)
         return id == MS_ID;
     return false;
@@ -512,7 +516,7 @@ BuildStep *MakeStepFactory::restore(BuildStepList *parent, const QVariantMap &ma
 
 QList<Core::Id> MakeStepFactory::availableCreationIds(ProjectExplorer::BuildStepList *parent) const
 {
-    if (parent->target()->project()->id() == Constants::CMAKEPROJECT_ID)
+    if (canHandle(parent) && parent->target()->project()->id() == Constants::CMAKEPROJECT_ID)
         return QList<Core::Id>() << Core::Id(MS_ID);
     return QList<Core::Id>();
 }
@@ -522,6 +526,15 @@ QString MakeStepFactory::displayNameForId(const Core::Id id) const
     if (id == MS_ID)
         return tr("Make", "Display name for CMakeProjectManager::MakeStep id.");
     return QString();
+}
+
+bool MakeStepFactory::canHandle(BuildStepList *parent) const
+{
+    if(!parent->parent())
+        return false;
+
+    //only create buildsteps for a CMakeBuildConfiguration
+    return parent->parent()->metaObject() == &CMakeBuildConfiguration::staticMetaObject;
 }
 
 void MakeStep::processStarted()

@@ -27,34 +27,45 @@
 **
 ****************************************************************************/
 
-#ifndef CMAKEPROJECTCONSTANTS_H
-#define CMAKEPROJECTCONSTANTS_H
+#ifndef CMAKEPROJECTMANAGER_INTERNAL_CMAKESETTINGSPAGE_H
+#define CMAKEPROJECTMANAGER_INTERNAL_CMAKESETTINGSPAGE_H
+
+#include <coreplugin/dialogs/ioptionspage.h>
+#include <texteditor/codeassist/keywordscompletionassist.h>
+#include <utils/pathchooser.h>
+#include <QCheckBox>
 
 namespace CMakeProjectManager {
-namespace Constants {
+namespace Internal {
 
-const char PROJECTCONTEXT[] = "CMakeProject.ProjectContext";
-const char CMAKEMIMETYPE[]  = "text/x-cmake";
-const char CMAKE_EDITOR_ID[] = "CMakeProject.CMakeEditor";
-const char CMAKE_EDITOR_DISPLAY_NAME[] = "CMake Editor";
-const char C_CMAKEEDITOR[] = "CMakeProject.Context.CMakeEditor";
-const char RUNCMAKE[] = "CMakeProject.RunCMake";
-const char RUNCMAKECONTEXTMENU[] = "CMakeProject.RunCMakeContextMenu";
-const char CMAKE_SUPPORT_FEATURE[] = "CMake.CMakeSupport";
+class CMakeSettingsPage : public Core::IOptionsPage
+{
+    Q_OBJECT
 
-// Project
-const char CMAKEPROJECT_ID[] = "CMakeProjectManager.CMakeProject";
+public:
+    CMakeSettingsPage();
+    ~CMakeSettingsPage();
 
-// Buildconfiguration
-const char CMAKE_BC_ID[] = "CMakeProjectManager.CMakeBuildConfiguration";
+    QWidget *createPage(QWidget *parent);
+    void apply();
+    void finish();
 
-// Menu
-const char M_CONTEXT[] = "CMakeEditor.ContextMenu";
+    bool isCMakeExecutableValid() const;
+    bool hasCodeBlocksMsvcGenerator() const;
+    bool hasCodeBlocksNinjaGenerator() const;
+    bool preferNinja() const;
 
-// CMake Tool
-const char CMAKE_TOOL_ID[] = "CMakeProjectManager.DefaultCMakeTool";
+    TextEditor::Keywords keywords();
 
-} // namespace Constants
+private:
+    void saveSettings() const;
+    QString findCmakeExecutable() const;
+
+    Utils::PathChooser *m_pathchooser;
+    QCheckBox *m_preferNinja;
+};
+
+} // namespace Internal
 } // namespace CMakeProjectManager
 
-#endif // CMAKEPROJECTCONSTANTS_H
+#endif // CMAKEPROJECTMANAGER_INTERNAL_CMAKESETTINGSPAGE_H

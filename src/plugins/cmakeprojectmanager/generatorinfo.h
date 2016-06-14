@@ -27,34 +27,43 @@
 **
 ****************************************************************************/
 
-#ifndef CMAKEPROJECTCONSTANTS_H
-#define CMAKEPROJECTCONSTANTS_H
+#ifndef CMAKE_INTERNAL_GENERATORINFO_H
+#define CMAKE_INTERNAL_GENERATORINFO_H
+
+#include "cmakeprojectmanager.h"
+#include "cmakeprojectmanager_global.h"
+
+#include <projectexplorer/kit.h>
+
+#include <QCoreApplication>
+#include <QMetaType>
 
 namespace CMakeProjectManager {
-namespace Constants {
 
-const char PROJECTCONTEXT[] = "CMakeProject.ProjectContext";
-const char CMAKEMIMETYPE[]  = "text/x-cmake";
-const char CMAKE_EDITOR_ID[] = "CMakeProject.CMakeEditor";
-const char CMAKE_EDITOR_DISPLAY_NAME[] = "CMake Editor";
-const char C_CMAKEEDITOR[] = "CMakeProject.Context.CMakeEditor";
-const char RUNCMAKE[] = "CMakeProject.RunCMake";
-const char RUNCMAKECONTEXTMENU[] = "CMakeProject.RunCMakeContextMenu";
-const char CMAKE_SUPPORT_FEATURE[] = "CMake.CMakeSupport";
+class CMAKEPROJECTMANAGER_EXPORT GeneratorInfo
+{
+    Q_DECLARE_TR_FUNCTIONS(CMakeProjectManager::GeneratorInfo)
+public:
+    enum Ninja { NoNinja, OfferNinja, ForceNinja };
+    static QList<GeneratorInfo> generatorInfosFor(ProjectExplorer::Kit *k, Ninja n, bool preferNinja, bool hasCodeBlocks);
 
-// Project
-const char CMAKEPROJECT_ID[] = "CMakeProjectManager.CMakeProject";
+    GeneratorInfo();
+    explicit GeneratorInfo(ProjectExplorer::Kit *kit, bool ninja = false);
 
-// Buildconfiguration
-const char CMAKE_BC_ID[] = "CMakeProjectManager.CMakeBuildConfiguration";
+    ProjectExplorer::Kit *kit() const;
+    bool isNinja() const;
 
-// Menu
-const char M_CONTEXT[] = "CMakeEditor.ContextMenu";
+    QString displayName() const;
+    QByteArray generatorArgument() const;
+    QByteArray generator() const;
 
-// CMake Tool
-const char CMAKE_TOOL_ID[] = "CMakeProjectManager.DefaultCMakeTool";
+private:
+    ProjectExplorer::Kit *m_kit;
+    bool m_isNinja;
+};
 
-} // namespace Constants
-} // namespace CMakeProjectManager
+} // namespace CMake
 
-#endif // CMAKEPROJECTCONSTANTS_H
+Q_DECLARE_METATYPE(CMakeProjectManager::GeneratorInfo)
+
+#endif // CMAKE_INTERNAL_GENERATORINFO_H

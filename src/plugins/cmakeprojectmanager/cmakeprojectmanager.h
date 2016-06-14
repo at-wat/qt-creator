@@ -30,12 +30,12 @@
 #ifndef CMAKEPROJECTMANAGER_H
 #define CMAKEPROJECTMANAGER_H
 
+#include "cmakeprojectmanager_global.h"
+#include "cmakesettingspage.h"
 #include <projectexplorer/iprojectmanager.h>
-#include <coreplugin/dialogs/ioptionspage.h>
 #include <projectexplorer/project.h>
 #include <projectexplorer/projectnodes.h>
 #include <coreplugin/icontext.h>
-#include <texteditor/codeassist/keywordscompletionassist.h>
 
 #include <utils/environment.h>
 #include <utils/pathchooser.h>
@@ -56,35 +56,18 @@ class QtcProcess;
 }
 
 namespace CMakeProjectManager {
-namespace Internal {
 
-class CMakeSettingsPage;
-
-class CMakeManager : public ProjectExplorer::IProjectManager
+class CMAKEPROJECTMANAGER_EXPORT CMakeManager : public ProjectExplorer::IProjectManager
 {
     Q_OBJECT
 public:
-    CMakeManager(CMakeSettingsPage *cmakeSettingsPage);
+    CMakeManager(Internal::CMakeSettingsPage *cmakeSettingsPage);
 
     virtual ProjectExplorer::Project *openProject(const QString &fileName, QString *errorString);
     virtual QString mimeType() const;
 
-    QString cmakeExecutable() const;
-    bool isCMakeExecutableValid() const;
-
-    void setCMakeExecutable(const QString &executable);
-
-    void createXmlFile(Utils::QtcProcess *process,
-                       const QString &arguments,
-                       const QString &sourceDirectory,
-                       const QDir &buildDirectory,
-                       const Utils::Environment &env,
-                       const QString &generator);
-    bool hasCodeBlocksMsvcGenerator() const;
-    bool hasCodeBlocksNinjaGenerator() const;
-    bool preferNinja() const;
+    static bool preferNinja();
     static QString findCbpFile(const QDir &);
-
     static QString findDumperLibrary(const Utils::Environment &env);
 private slots:
     void updateContextMenu(ProjectExplorer::Project *project, ProjectExplorer::Node *node);
@@ -94,44 +77,13 @@ private:
     void runCMake(ProjectExplorer::Project *project);
     static QString qtVersionForQMake(const QString &qmakePath);
     static QPair<QString, QString> findQtDir(const Utils::Environment &env);
-    CMakeSettingsPage *m_settingsPage;
+    Internal::CMakeSettingsPage *m_settingsPage;
     QAction *m_runCMakeAction;
     QAction *m_runCMakeActionContextMenu;
     ProjectExplorer::Project *m_contextProject;
+
+    static CMakeManager* m_instance;
 };
-
-class CMakeSettingsPage : public Core::IOptionsPage
-{
-    Q_OBJECT
-
-public:
-    CMakeSettingsPage();
-    ~CMakeSettingsPage();
-
-    QWidget *createPage(QWidget *parent);
-    void apply();
-    void finish();
-
-    QString cmakeExecutable() const;
-    void setCMakeExecutable(const QString &executable);
-    bool isCMakeExecutableValid() const;
-    bool hasCodeBlocksMsvcGenerator() const;
-    bool hasCodeBlocksNinjaGenerator() const;
-    bool preferNinja() const;
-
-    TextEditor::Keywords keywords();
-
-private:
-    void saveSettings() const;
-    QString findCmakeExecutable() const;
-
-    Utils::PathChooser *m_pathchooser;
-    QCheckBox *m_preferNinja;
-    CMakeValidator m_cmakeValidatorForUser;
-    CMakeValidator m_cmakeValidatorForSystem;
-};
-
-} // namespace Internal
 } // namespace CMakeProjectManager
 
 #endif // CMAKEPROJECTMANAGER_H

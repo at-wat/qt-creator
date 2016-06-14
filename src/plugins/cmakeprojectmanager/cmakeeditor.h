@@ -43,11 +43,12 @@ class FontSettings;
 }
 
 namespace CMakeProjectManager {
+class CMakeManager;
+
 namespace Internal {
 
 class CMakeEditorWidget;
 class CMakeHighlighter;
-class CMakeManager;
 
 class CMakeEditor : public TextEditor::BaseTextEditor
 {
