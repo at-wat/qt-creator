@@ -127,10 +127,39 @@ CMakeBuildConfiguration::CMakeBuildConfiguration(ProjectExplorer::Target *parent
     init(parent);
 }
 
+bool removeRecursively(const QString dirPath)
+{
+    bool success = true;
+    QDirIterator di(dirPath, QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
+    while (di.hasNext()) {
+        di.next();
+        const QFileInfo& fi = di.fileInfo();
+        const QString &filePath = di.filePath();
+        bool ok;
+        if (fi.isDir() && !fi.isSymLink()) {
+            ok = removeRecursively(filePath);
+        } else {
+            ok = QFile::remove(filePath);
+            if (!ok) {
+                const QFile::Permissions permissions = QFile::permissions(filePath);
+                if (!(permissions & QFile::WriteUser))
+                    ok = QFile::setPermissions(filePath, permissions | QFile::WriteUser)
+                        && QFile::remove(filePath);
+            }
+        }
+        if (!ok)
+            success = false;
+    }
+
+    if (success)
+        success = QDir(dirPath).rmdir(dirPath);
+
+    return success;
+}
+
 void CMakeBuildConfiguration::cleanAndRunCMake()
 {
-    QDir dir(buildDirectory().toString());
-    dir.removeRecursively();
+    removeRecursively(buildDirectory().toString());
 
     runCMake();
 }

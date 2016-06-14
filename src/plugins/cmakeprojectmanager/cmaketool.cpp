@@ -36,6 +36,7 @@
 #include <QProcess>
 #include <QFileInfo>
 #include <QDir>
+#include <QtGui/qtextdocument.h>
 #include <extensionsystem/pluginmanager.h>
 #include <projectexplorer/target.h>
 #include <projectexplorer/kit.h>
@@ -167,7 +168,7 @@ void CMakeTool::finished(int exitCode)
         m_state = CMakeTool::RunningDone;
     }else if (m_state == CMakeTool::RunningProject) {
         //cmake run is finished no matter if we were successful or not
-        m_currentRun.clear();
+        m_currentRun = QPointer<ProjectExplorer::Target>();
         m_state = CMakeTool::RunningDone;
 
         if(m_futureInterface) {
