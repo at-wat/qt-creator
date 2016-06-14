@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2014 Digia Plc and/or its subsidiary(-ies).
+** Copyright (C) 2014 Canonical Ltd.
 ** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of Qt Creator.
@@ -27,48 +27,44 @@
 **
 ****************************************************************************/
 
-#ifndef REMOTELINUXENVIRONMENTASPECT_H
-#define REMOTELINUXENVIRONMENTASPECT_H
-
-#include "abstractremotelinuxrunconfiguration.h"
+#ifndef REMOTELINUX_ABSTRACTREMOTELINUXRUNCONFIGURATION_H
+#define REMOTELINUX_ABSTRACTREMOTELINUXRUNCONFIGURATION_H
 
 #include "remotelinux_export.h"
 
-#include <projectexplorer/environmentaspect.h>
+#include <projectexplorer/runconfiguration.h>
+#include <utils/environment.h>
+
+#include <QStringList>
 
 namespace RemoteLinux {
-class RemoteLinuxEnvironmentAspectWidget;
-class AbstractRemoteLinuxRunConfiguration;
 
-class REMOTELINUX_EXPORT RemoteLinuxEnvironmentAspect : public ProjectExplorer::EnvironmentAspect
+class REMOTELINUX_EXPORT AbstractRemoteLinuxRunConfiguration : public ProjectExplorer::RunConfiguration
 {
     Q_OBJECT
+    Q_DISABLE_COPY(AbstractRemoteLinuxRunConfiguration)
 
 public:
-    RemoteLinuxEnvironmentAspect(ProjectExplorer::RunConfiguration *rc);
-    RemoteLinuxEnvironmentAspect *create(ProjectExplorer::RunConfiguration *parent) const;
-    ProjectExplorer::RunConfigWidget *createConfigurationWidget();
+    AbstractRemoteLinuxRunConfiguration(ProjectExplorer::Target *parent, const Core::Id id);
 
-    QList<int> possibleBaseEnvironments() const;
-    QString baseEnvironmentDisplayName(int base) const;
-    Utils::Environment baseEnvironment() const;
+    ~AbstractRemoteLinuxRunConfiguration();
 
-    AbstractRemoteLinuxRunConfiguration *runConfiguration() const;
+    virtual QString localExecutableFilePath() const = 0;
+    virtual QString remoteExecutableFilePath() const = 0;
+    virtual QStringList arguments() const = 0;
+    virtual QString workingDirectory() const = 0;
+    virtual QString alternateRemoteExecutable() const = 0;
+    virtual bool useAlternateExecutable() const = 0;
+    virtual Utils::Environment environment() const = 0;
+signals:
+    void deploySpecsChanged();
+    void targetInformationChanged() const;
 
-    Utils::Environment remoteEnvironment() const;
-    void setRemoteEnvironment(const Utils::Environment &env);
-
-    QString userEnvironmentChangesAsString() const;
-
-private:
-    enum BaseEnvironmentBase {
-        CleanBaseEnvironment = 0,
-        RemoteBaseEnvironment = 1
-    };
-
-    Utils::Environment m_remoteEnvironment;
+protected:
+    AbstractRemoteLinuxRunConfiguration(ProjectExplorer::Target *parent,
+        AbstractRemoteLinuxRunConfiguration *source);
 };
 
 } // namespace RemoteLinux
 
-#endif // REMOTELINUXENVIRONMENTASPECT_H
+#endif // REMOTELINUX_ABSTRACTREMOTELINUXRUNCONFIGURATION_H

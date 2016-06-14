@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2014 Digia Plc and/or its subsidiary(-ies).
+** Copyright (C) 2014 Canonical Ltd.
 ** Contact: http://www.qt-project.org/legal
 **
 ** This file is part of Qt Creator.
@@ -27,48 +27,27 @@
 **
 ****************************************************************************/
 
-#ifndef REMOTELINUXENVIRONMENTASPECT_H
-#define REMOTELINUXENVIRONMENTASPECT_H
-
 #include "abstractremotelinuxrunconfiguration.h"
 
-#include "remotelinux_export.h"
-
-#include <projectexplorer/environmentaspect.h>
-
 namespace RemoteLinux {
-class RemoteLinuxEnvironmentAspectWidget;
-class AbstractRemoteLinuxRunConfiguration;
 
-class REMOTELINUX_EXPORT RemoteLinuxEnvironmentAspect : public ProjectExplorer::EnvironmentAspect
+AbstractRemoteLinuxRunConfiguration::AbstractRemoteLinuxRunConfiguration(ProjectExplorer::Target *parent,
+                                                                         const Core::Id id)
+    : RunConfiguration(parent, id)
 {
-    Q_OBJECT
 
-public:
-    RemoteLinuxEnvironmentAspect(ProjectExplorer::RunConfiguration *rc);
-    RemoteLinuxEnvironmentAspect *create(ProjectExplorer::RunConfiguration *parent) const;
-    ProjectExplorer::RunConfigWidget *createConfigurationWidget();
+}
 
-    QList<int> possibleBaseEnvironments() const;
-    QString baseEnvironmentDisplayName(int base) const;
-    Utils::Environment baseEnvironment() const;
+AbstractRemoteLinuxRunConfiguration::~AbstractRemoteLinuxRunConfiguration()
+{
 
-    AbstractRemoteLinuxRunConfiguration *runConfiguration() const;
+}
 
-    Utils::Environment remoteEnvironment() const;
-    void setRemoteEnvironment(const Utils::Environment &env);
+AbstractRemoteLinuxRunConfiguration::AbstractRemoteLinuxRunConfiguration(ProjectExplorer::Target *parent,
+                                                                         AbstractRemoteLinuxRunConfiguration *source)
+    : RunConfiguration(parent, source)
+{
 
-    QString userEnvironmentChangesAsString() const;
-
-private:
-    enum BaseEnvironmentBase {
-        CleanBaseEnvironment = 0,
-        RemoteBaseEnvironment = 1
-    };
-
-    Utils::Environment m_remoteEnvironment;
-};
+}
 
 } // namespace RemoteLinux
-
-#endif // REMOTELINUXENVIRONMENTASPECT_H
